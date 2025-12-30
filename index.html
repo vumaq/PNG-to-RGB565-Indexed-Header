@@ -2,183 +2,312 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>PNG-to-RGB565-Indexed-Header</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image to RGB565 Indexed Header</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/rgbquant@1.1.2/src/rgbquant.min.js"></script>
+    <style>
+        .checkerboard {
+            background-image: linear-gradient(45deg, #1e293b 25%, transparent 25%), linear-gradient(-45deg, #1e293b 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1e293b 75%), linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+            background-size: 40px 40px;
+            background-position: 0 0, 0 20px, 20px -20px, -20px 0px;
+            background-color: #0f172a;
+        }
+        #preview-canvas {
+            max-width: 80vw;
+            max-height: 80vh;
+            object-fit: contain;
+        }
+        * { transition: none !important; }
+        input[type=number]::-webkit-inner-spin-button { opacity: 1; margin-left: 8px; }
+        .truncate-filename {
+            max-width: 140px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        /* Added a simple loading pulse for the status text */
+        .loading-pulse { animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; color: #818cf8; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+    </style>
 </head>
-<body class="bg-slate-950 min-h-screen flex items-center justify-center p-4 text-slate-200 font-sans">
+<body class="checkerboard min-h-screen text-slate-200 font-sans flex overflow-hidden">
 
-    <div class="max-w-md w-full bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 overflow-hidden">
-        <header class="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-            <div>
-                <h1 class="text-xl font-black text-indigo-400 tracking-tighter">PNG-to-RGB565-Indexed-Header</h1>
-                <p id="status-text" class="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Awaiting Image...</p>
-            </div>
-            <div id="alpha-badge" class="hidden px-2 py-0.5 rounded bg-pink-500/10 text-pink-400 text-[9px] font-bold border border-pink-500/20 uppercase">Alpha-Keyed</div>
-        </header>
+    <div class="flex flex-col h-screen z-50 p-6 gap-6 pointer-events-none w-full max-w-sm">
+        <div class="pointer-events-auto">
+            <h1 class="text-3xl font-black text-indigo-500 tracking-tighter italic leading-none uppercase">Image to RGB565 Indexed Header</h1>
+            <p id="status-text" class="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em] mt-2">Awaiting Source</p>
+        </div>
 
-        <div id="drop-zone" class="relative group cursor-pointer text-center p-8 transition-all hover:bg-slate-800/50">
-            <input type="file" id="file-input" accept="image/*" class="hidden">
-            <div id="drop-content" class="space-y-3 py-4">
-                <div class="w-10 h-10 bg-slate-800 text-indigo-400 rounded-full flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-5 h-5"><path d="M12 4.5v15m7.5-7.5h-15" /></svg>
+        <div id="sidebar" class="hidden pointer-events-auto flex flex-col gap-px bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl">
+            <div class="bg-slate-900/90 p-5 space-y-3 border-b border-slate-800">
+                <div class="flex flex-col gap-1">
+                    <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Source File</span>
+                    <div class="flex items-center justify-between">
+                        <span id="info-filename" class="font-mono text-[11px] text-slate-200 truncate-filename">-</span>
+                        <span id="info-alpha" class="text-[8px] font-black px-1.5 py-0.5 rounded border border-slate-700 bg-slate-800 text-slate-500 uppercase tracking-tighter italic">No Alpha</span>
+                    </div>
                 </div>
-                <p class="text-sm font-bold text-slate-400 uppercase">Drop PNG/JPG</p>
             </div>
-            <canvas id="preview-canvas" class="hidden mx-auto rounded border border-slate-700 max-h-48 shadow-inner"></canvas>
-        </div>
 
-        <div id="info-bar" class="hidden px-5 py-2.5 bg-slate-950/50 border-y border-slate-800 flex justify-between items-center text-[10px] font-mono">
-            <div class="flex gap-3 text-slate-500">
-                <span>W: <b id="info-w" class="text-slate-200">-</b></span>
-                <span>H: <b id="info-h" class="text-slate-200">-</b></span>
-            </div>
-            <div>
-                <span id="info-colors" class="text-indigo-400 font-bold">-</span> <span class="text-slate-600">COLORS</span>
-            </div>
-        </div>
+            <div class="bg-slate-900/80 p-5 space-y-4">
+                <div class="flex justify-between items-end border-b border-slate-800 pb-3">
+                    <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Resolution</span>
+                    <span id="info-res" class="font-mono text-xs text-slate-200">-</span>
+                </div>
 
-        <div id="result-area" class="hidden p-5 bg-slate-900">
-            <div class="grid grid-cols-2 gap-3">
-                <button id="copy-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold py-3.5 rounded-lg transition-all uppercase tracking-wider">Copy Code</button>
-                <button id="download-btn" class="bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold py-3.5 rounded-lg transition-all uppercase tracking-wider">Download .h</button>
+                <div class="flex justify-between items-end border-b border-slate-800 pb-3">
+                    <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Source Colors</span>
+                    <span id="info-source-colors" class="font-mono text-xs text-slate-200">-</span>
+                </div>
+
+                <div class="space-y-2">
+                    <label class="text-[9px] font-bold text-slate-500 uppercase tracking-widest block">Palette Limit</label>
+                    <input type="number" id="pal-limit" value="256" min="2" max="256" 
+                        class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-indigo-400 font-bold font-mono focus:outline-none focus:border-indigo-500">
+                </div>
             </div>
-        </div>
-        
-        <div id="warn-msg" class="hidden px-5 py-2 bg-amber-500/10 text-amber-500 text-[9px] font-bold text-center border-t border-amber-500/10 uppercase tracking-widest">
-             Image Quantized to fit 8-bit limit
+
+            <div class="bg-slate-900/40 p-3 grid grid-cols-1 gap-2">
+                <button id="toggle-view" class="flex items-center gap-3 bg-slate-800 hover:bg-slate-700 text-slate-300 p-3 rounded-xl border border-slate-700 active:scale-95">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span class="text-[10px] font-bold uppercase tracking-wider">Preview Toggle</span>
+                </button>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="copy-btn" class="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white p-3 rounded-xl shadow-lg active:scale-95">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span id="copy-text" class="text-[10px] font-bold uppercase tracking-wider">Copy</span>
+                    </button>
+
+                    <button id="download-btn" class="flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white p-3 rounded-xl active:scale-95">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-center">Export .h</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
+
+    <main id="drop-zone" class="absolute inset-0 flex items-center justify-center p-4">
+        <input type="file" id="file-input" accept="image/*" class="hidden">
+        <div id="drop-content" class="text-center cursor-pointer pointer-events-auto">
+            <div class="w-20 h-20 bg-slate-800/40 border-2 border-dashed border-slate-600 rounded-full flex items-center justify-center mx-auto mb-4 hover:border-indigo-500">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 text-slate-500"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            </div>
+            <p class="text-slate-500 font-bold uppercase tracking-[0.3em] text-[9px]">Drop or Click to Load</p>
+        </div>
+        <canvas id="preview-canvas" class="hidden shadow-2xl border border-slate-700/50"></canvas>
+    </main>
+
+    <script id="worker-script" type="text/javascript-worker">
+        importScripts('https://cdn.jsdelivr.net/npm/rgbquant@1.1.2/src/rgbquant.min.js');
+
+        self.onmessage = function(e) {
+            const { imgData, maxColors, hasAlpha, downloadName } = e.data;
+            
+            // Re-wrap the raw buffer into a canvas-like object RgbQuant understands
+            const q = new RgbQuant({ colors: maxColors, method: 2 });
+            q.sample(imgData);
+            let palette = q.palette(); 
+            let indices = q.reduce(imgData, 2); 
+            
+            if(hasAlpha) {
+                const newPal = new Uint8Array(256 * 4);
+                newPal.set(palette);
+                newPal[255*4]=255; newPal[255*4+1]=105; newPal[255*4+2]=180; newPal[255*4+3]=255;
+                palette = newPal;
+            }
+
+            const count = palette.length/4;
+            const w = imgData.width;
+            const h = imgData.height;
+
+            // Generate Header String in worker
+            let s = `// to-RGB565-Indexed-Header GFX Export\n#ifndef BITMAP_DATA_H\n#define BITMAP_DATA_H\n\n#include <Arduino.h>\n\n`;
+            s += `static constexpr uint16_t GFX_W = ${w};\nstatic constexpr uint16_t GFX_H = ${h};\n\n`;
+            s += `const uint8_t epd_bitmap_${downloadName}[] PROGMEM = {\n    `;
+            for (let i = 0; i < indices.length; i++) {
+                s += indices[i] + (i === indices.length - 1 ? "" : ", ");
+                if ((i + 1) % 16 === 0) s += "\n    ";
+            }
+            s += `\n};\n\nconst uint16_t epd_palette_${downloadName}[${count}] PROGMEM = {\n    `;
+            for (let i = 0; i < count; i++) {
+                const r = palette[i*4], g = palette[i*4+1], b = palette[i*4+2];
+                const rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+                s += `0x${rgb565.toString(16).toUpperCase().padStart(4, '0')}${i === count - 1 ? '' : ', '}`;
+                if ((i + 1) % 8 === 0) s += "\n    ";
+            }
+            s += `\n};\n\n#endif`;
+
+            self.postMessage({ palette, indices, finalHeader: s });
+        };
+    </script>
 
     <script>
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
         const statusText = document.getElementById('status-text');
         const previewCanvas = document.getElementById('preview-canvas');
-        const infoBar = document.getElementById('info-bar');
-        const resultArea = document.getElementById('result-area');
-        const warnMsg = document.getElementById('warn-msg');
-        const alphaBadge = document.getElementById('alpha-badge');
+        const sidebar = document.getElementById('sidebar');
+        const palLimitInput = document.getElementById('pal-limit');
+        const sourceColorsDisplay = document.getElementById('info-source-colors');
+        const filenameDisplay = document.getElementById('info-filename');
+        const alphaBadge = document.getElementById('info-alpha');
         
+        let originalImg = null;
+        let processedData = null; 
+        let isViewOriginal = false;
         let finalHeader = "";
+        let currentFullFilename = "image";
+        let downloadName = "splash_indexed";
 
-        dropZone.onclick = () => fileInput.click();
+        // Initialize Worker from the script block above
+        const workerBlob = new Blob([document.getElementById('worker-script').textContent], { type: 'text/javascript' });
+        const worker = new Worker(URL.createObjectURL(workerBlob));
+
+        worker.onmessage = function(e) {
+            const { palette, indices, finalHeader: header } = e.data;
+            processedData = { 
+                palette, 
+                indices, 
+                w: previewCanvas.width, 
+                h: previewCanvas.height, 
+                count: palette.length/4 
+            };
+            finalHeader = header;
+            
+            statusText.classList.remove('loading-pulse');
+            updateUI(true);
+            renderView();
+        };
+
+        dropZone.onclick = (e) => { 
+            if(e.target.closest('#sidebar')) return;
+            if(!originalImg) fileInput.click(); 
+        };
+        
         fileInput.onchange = (e) => handleFile(e.target.files[0]);
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(n => dropZone.addEventListener(n, e => { e.preventDefault(); e.stopPropagation(); }));
         dropZone.ondrop = (e) => handleFile(e.dataTransfer.files[0]);
 
+        palLimitInput.onchange = () => { if(originalImg) processImage(originalImg); };
+        document.getElementById('toggle-view').onclick = () => { if(originalImg) toggleViewMode(); };
+
         function handleFile(file) {
             if (!file) return;
+            currentFullFilename = file.name;
+            downloadName = file.name.split('.').slice(0, -1).join('.') || "splash_indexed";
             const img = new Image();
-            img.onload = () => processImage(img);
+            img.onload = () => { originalImg = img; processImage(img); };
             img.src = URL.createObjectURL(file);
         }
 
+        function countUniqueColors(data) {
+            const colors = new Set();
+            for (let i = 0; i < data.length; i += 4) {
+                const rgba = (data[i] << 24) | (data[i+1] << 16) | (data[i+2] << 8) | data[i+3];
+                colors.add(rgba);
+            }
+            return colors.size;
+        }
+
         async function processImage(img) {
-            statusText.innerText = "Processing...";
-            warnMsg.classList.add('hidden');
-            alphaBadge.classList.add('hidden');
+            statusText.innerText = "Crunching Data...";
+            statusText.classList.add('loading-pulse');
             
-            const w = img.width;
-            const h = img.height;
-            previewCanvas.width = w;
-            previewCanvas.height = h;
+            const w = img.width; const h = img.height;
+            previewCanvas.width = w; previewCanvas.height = h;
             const ctx = previewCanvas.getContext('2d');
             ctx.drawImage(img, 0, 0);
 
-            // 1. Detect Alpha
-            const imgData = ctx.getImageData(0, 0, w, h).data;
-            let hasAlpha = false;
-            for(let i=3; i<imgData.length; i+=4) {
-                if(imgData[i] < 255) { hasAlpha = true; break; }
-            }
+            const imageDataObj = ctx.getImageData(0, 0, w, h);
+            const rawData = imageDataObj.data;
+            
+            sourceColorsDisplay.innerText = countUniqueColors(rawData).toLocaleString();
+            filenameDisplay.innerText = currentFullFilename;
 
-            // 2. Set Smart Palette Limit
-            // If alpha exists, we need 1 slot for the transparency key (Total 256)
-            const maxColors = hasAlpha ? 255 : 256;
+            let hasAlpha = false;
+            for(let i=3; i<rawData.length; i+=4) if(rawData[i] < 255) { hasAlpha = true; break; }
 
             if(hasAlpha) {
-                alphaBadge.classList.remove('hidden');
-                const buffer = ctx.getImageData(0,0,w,h);
-                for(let i=0; i<buffer.data.length; i+=4) {
-                    if(buffer.data[i+3] < 255) {
-                        // Key transparent pixels to Pink (#FF69B4)
-                        buffer.data[i]=255; buffer.data[i+1]=105; buffer.data[i+2]=180; buffer.data[i+3]=255;
+                alphaBadge.innerText = "Transparency";
+                alphaBadge.className = "text-[8px] font-black px-1.5 py-0.5 rounded border border-amber-900/50 bg-slate-800 text-amber-500 uppercase tracking-tighter italic";
+                // Pre-process alpha pixels to hot pink for the quantizer
+                for(let i=0; i<rawData.length; i+=4) {
+                    if(rawData[i+3] < 255) {
+                        rawData[i]=255; rawData[i+1]=105; rawData[i+2]=180; rawData[i+3]=255;
                     }
                 }
-                ctx.putImageData(buffer, 0, 0);
+            } else {
+                alphaBadge.innerText = "Opaque";
+                alphaBadge.className = "text-[8px] font-black px-1.5 py-0.5 rounded border border-slate-700 bg-slate-800 text-slate-500 uppercase tracking-tighter italic";
             }
 
-            document.getElementById('drop-content').classList.add('hidden');
-            previewCanvas.classList.remove('hidden');
-            infoBar.classList.remove('hidden');
+            const userLimit = parseInt(palLimitInput.value) || 256;
+            const maxColors = hasAlpha ? Math.min(userLimit, 255) : userLimit;
 
-            setTimeout(() => {
-                const q = new RgbQuant({ colors: maxColors, method: 2 });
-                q.sample(previewCanvas);
-                let palette = q.palette(); 
-                let indices = q.reduce(previewCanvas, 2); 
-                let colorCount = palette.length / 4;
-
-                // Show warning if the source had more colors than our 8-bit limit
-                if (colorCount >= maxColors) warnMsg.classList.remove('hidden');
-
-                // If alpha, manually inject the pink key as the 256th color (Index 255)
-                if(hasAlpha) {
-                    const newPal = new Uint8Array(256 * 4);
-                    newPal.set(palette);
-                    newPal[255*4]=255; newPal[255*4+1]=105; newPal[255*4+2]=180; newPal[255*4+3]=255;
-                    palette = newPal;
-                    colorCount = 256;
-                }
-
-                document.getElementById('info-w').innerText = w;
-                document.getElementById('info-h').innerText = h;
-                document.getElementById('info-colors').innerText = colorCount;
-
-                finalHeader = generateHeader(w, h, palette, indices, colorCount, hasAlpha);
-                
-                resultArea.classList.remove('hidden');
-                statusText.innerText = "Complete";
-            }, 50);
+            // Offload to worker
+            worker.postMessage({
+                imgData: imageDataObj,
+                maxColors,
+                hasAlpha,
+                downloadName
+            });
         }
 
-        function generateHeader(w, h, palette, indices, palCount, hasAlpha) {
-            let s = `// Auto-generated 8-bit indexed graphic\n`;
-            if(hasAlpha) s += `// Transparency Key: #FF69B4 (Index 255)\n`;
-            s += `#ifndef SPLASH_INDEXED_H\n#define SPLASH_INDEXED_H\n\n#include <Arduino.h>\n\n`;
-            s += `static constexpr uint16_t SPLASH_W = ${w};\n`;
-            s += `static constexpr uint16_t SPLASH_H = ${h};\n\n`;
-            
-            s += `const uint8_t epd_bitmap_Splash8[] PROGMEM = {\n    `;
-            for (let i = 0; i < indices.length; i++) {
-                s += indices[i] + (i === indices.length - 1 ? "" : ", ");
-                if ((i + 1) % 16 === 0) s += "\n    ";
+        function toggleViewMode() {
+            isViewOriginal = !isViewOriginal;
+            renderView();
+            statusText.innerText = isViewOriginal ? "Mode: Original" : "Mode: Processed";
+        }
+
+        function renderView() {
+            const ctx = previewCanvas.getContext('2d');
+            if (isViewOriginal) {
+                ctx.drawImage(originalImg, 0, 0);
+            } else {
+                const imgData = ctx.createImageData(processedData.w, processedData.h);
+                for(let i=0; i<processedData.indices.length; i++) {
+                    const idx = processedData.indices[i] * 4;
+                    imgData.data[i*4] = processedData.palette[idx];
+                    imgData.data[i*4+1] = processedData.palette[idx+1];
+                    imgData.data[i*4+2] = processedData.palette[idx+2];
+                    imgData.data[i*4+3] = 255;
+                }
+                ctx.putImageData(imgData, 0, 0);
             }
-            s += `\n};\n\nconst uint16_t epd_palette_Splash[${palCount}] PROGMEM = {\n    `;
-            for (let i = 0; i < palCount; i++) {
-                const r = palette[i*4], g = palette[i*4+1], b = palette[i*4+2];
-                // RGB565 conversion from your Python script
-                const rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-                s += `0x${rgb565.toString(16).toUpperCase().padStart(4, '0')}${i === palCount - 1 ? '' : ', '}`;
-                if ((i + 1) % 8 === 0) s += "\n    ";
+        }
+
+        function updateUI(done) {
+            document.getElementById('drop-content').classList.toggle('hidden', done);
+            previewCanvas.classList.toggle('hidden', !done);
+            sidebar.classList.toggle('hidden', !done);
+            if(done) {
+                document.getElementById('info-res').innerText = `${previewCanvas.width}x${previewCanvas.height}`;
+                statusText.innerText = "Ready";
             }
-            s += `\n};\n\n#endif`;
-            return s;
         }
 
         document.getElementById('copy-btn').onclick = () => {
             navigator.clipboard.writeText(finalHeader);
-            const btn = document.getElementById('copy-btn');
-            btn.innerText = "COPIED!";
-            setTimeout(() => btn.innerText = "Copy Header", 1500);
+            const text = document.getElementById('copy-text');
+            text.innerText = "COPIED";
+            setTimeout(() => { text.innerText = "Copy"; }, 800);
         };
 
         document.getElementById('download-btn').onclick = () => {
             const blob = new Blob([finalHeader], { type: 'text/plain' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = 'splash_indexed.h';
+            a.download = `${downloadName}.h`;
             a.click();
         };
     </script>
