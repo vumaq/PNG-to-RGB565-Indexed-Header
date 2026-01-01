@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RGB565 Indexed Image Converter</title>
+    <title>8-Bit Indexed RGB565 Converter</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/rgbquant@1.1.2/src/rgbquant.min.js"></script>
     <style>
@@ -30,7 +30,7 @@
     </div>
 
     <header class="w-full px-8 pt-4 flex flex-col gap-1 pointer-events-none z-10">
-        <h1 class="text-3xl font-black text-white tracking-tighter uppercase leading-none">RGB565 Converter</h1>
+        <h1 class="text-3xl font-black text-white tracking-tighter uppercase leading-none">8-Bit Indexed RGB565 Converter</h1>
     </header>
 
     <main class="flex-1 w-full py-4 flex items-center justify-center relative overflow-hidden pointer-events-none">
@@ -41,7 +41,7 @@
             </svg>
             <p class="text-slate-600 font-bold uppercase tracking-[0.2em] text-[10px]">Drop Image Anywhere</p>
         </div>
-        <canvas id="preview-canvas" class="hidden shadow-2xl border border-slate-700/50 bg-black z-20"></canvas>
+        <canvas id="preview-canvas" class="hidden shadow-2xl border border-slate-700/50 z-20"></canvas>
     </main>
 
     <div id="summary-bar" class="hidden h-14 bg-slate-900/95 border-t border-slate-800 px-8 z-30 backdrop-blur-sm">
@@ -59,11 +59,18 @@
                 <input type="number" id="pal-limit" value="256" min="2" max="256" 
                     class="bg-transparent text-indigo-400 font-bold text-lg focus:outline-none">
             </div>
-            <div class="h-16"></div>
+
+            <div class="flex flex-col justify-center bg-slate-900 px-6 h-16 rounded-xl border border-slate-700">
+                <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Transparency Key</label>
+                <input type="text" id="alpha-value-input" value="0xF81F" 
+                    class="bg-transparent text-pink-500 font-bold text-lg focus:outline-none uppercase" placeholder="0x0000">
+            </div>
+
             <button id="toggle-view" class="h-16 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 flex flex-col items-center justify-center hover:bg-slate-800 transition-colors">
                 <span class="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-1">View Mode</span>
                 <span id="view-mode-label" class="text-[10px] font-bold uppercase">Processed</span>
             </button>
+
             <button id="download-btn" class="h-16 rounded-xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-900/20 flex flex-col items-center justify-center hover:bg-indigo-500 active:scale-[0.98] transition-all">
                 <span class="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-200 mb-1">Export</span>
                 <span class="text-[10px] font-bold uppercase">Download .h</span>
@@ -75,9 +82,13 @@
         importScripts('https://cdn.jsdelivr.net/npm/rgbquant@1.1.2/src/rgbquant.min.js');
         
         self.onmessage = function(e) {
-            const { imgData, maxColors, downloadName } = e.data;
+            const { imgData, maxColors, downloadName, rawAlphaValue } = e.data;
             
-            // Detect transparency
+            const val = parseInt(rawAlphaValue, 16);
+            const rK = Math.round(((val >> 11) & 0x1F) * (255 / 31));
+            const gK = Math.round(((val >> 5) & 0x3F) * (255 / 63));
+            const bK = Math.round((val & 0x1F) * (255 / 31));
+
             let hasTransparency = false;
             for (let i = 3; i < imgData.data.length; i += 4) {
                 if (imgData.data[i] < 128) {
@@ -86,7 +97,6 @@
                 }
             }
 
-            // If transparent, reserve 1 slot for Hot Pink
             const qColors = hasTransparency ? Math.max(1, maxColors - 1) : maxColors;
             const q = new RgbQuant({ colors: qColors, method: 2, sample: 1 });
             q.sample(imgData);
@@ -98,12 +108,10 @@
             let finalIndices = new Uint8Array(rawIndices.length);
 
             if (hasTransparency) {
-                // Hot Pink at Index 0
-                finalPalette.push(255, 0, 255, 255);
+                // Reserve Index 0 and fill it with the RGB of your Transparency Key for the UI preview
+                finalPalette.push(rK, gK, bK, 255); 
                 for (let i = 0; i < rawPalette.length; i++) finalPalette.push(rawPalette[i]);
-                
                 for (let i = 0; i < rawIndices.length; i++) {
-                    // Force transparent pixels to 0, shift others up
                     finalIndices[i] = (imgData.data[i * 4 + 3] < 128) ? 0 : rawIndices[i] + 1;
                 }
             } else {
@@ -113,7 +121,7 @@
 
             const count = finalPalette.length / 4;
 
-            let header = `/* Generated RGB565 Indexed Data ${hasTransparency ? '(Index 0 = Transparent Hot Pink)' : ''} */\n#ifndef BITMAP_DATA_H\n#define BITMAP_DATA_H\n#include <stdint.h>\n\n`;
+            let header = `/* Generated 8-Bit Indexed Data */\n#ifndef BITMAP_DATA_H\n#define BITMAP_DATA_H\n#include <stdint.h>\n\n`;
             header += `static constexpr uint16_t GFX_W = ${imgData.width};\n`;
             header += `static constexpr uint16_t GFX_H = ${imgData.height};\n\n`;
             
@@ -128,9 +136,14 @@
 
             header += `const uint16_t epd_palette_${downloadName}[${count}] PROGMEM = {\n    `;
             for (let i = 0; i < count; i++) {
-                const r = finalPalette[i*4], g = finalPalette[i*4+1], b = finalPalette[i*4+2];
-                const rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-                header += "0x" + rgb565.toString(16).toUpperCase().padStart(4, '0');
+                if (hasTransparency && i === 0) {
+                    header += rawAlphaValue; 
+                } else {
+                    const r = finalPalette[i*4], g = finalPalette[i*4+1], b = finalPalette[i*4+2];
+                    const rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+                    header += "0x" + rgb565.toString(16).toUpperCase().padStart(4, '0');
+                }
+                
                 if (i < count - 1) {
                     header += (i + 1) % 8 === 0 ? ",\n    " : ", ";
                 }
@@ -145,16 +158,18 @@
         const fileInput = document.getElementById('file-input');
         const previewCanvas = document.getElementById('preview-canvas');
         const palLimitInput = document.getElementById('pal-limit');
+        const alphaInput = document.getElementById('alpha-value-input');
         const viewModeLabel = document.getElementById('view-mode-label');
 
         let originalImg = null, processedData = null, isViewOriginal = false, finalHeader = "", downloadName = "image";
         const worker = new Worker(URL.createObjectURL(new Blob([document.getElementById('worker-script').textContent], { type: 'text/javascript' })));
 
         function updateStatus(msg, isLoading = false) {
-            document.getElementById('toast').classList.remove('hidden');
+            const toast = document.getElementById('toast');
+            toast.classList.remove('hidden');
             document.getElementById('status-text').innerText = msg;
             document.getElementById('status-dot').className = isLoading ? "w-2 h-2 rounded-full bg-indigo-500 loading-pulse" : "w-2 h-2 rounded-full bg-green-500";
-            if (!isLoading) setTimeout(() => document.getElementById('toast').classList.add('hidden'), 2000);
+            if (!isLoading) setTimeout(() => toast.classList.add('hidden'), 2000);
         }
 
         worker.onmessage = (e) => {
@@ -177,6 +192,7 @@
         window.addEventListener('drop', (e) => { e.preventDefault(); document.body.classList.remove('drag-active'); handleFile(e.dataTransfer.files[0]); });
 
         palLimitInput.onchange = () => { if(originalImg) processImage(originalImg); };
+        alphaInput.onchange = () => { if(originalImg) processImage(originalImg); };
 
         function handleFile(file) {
             if (!file?.type.startsWith('image/')) return;
@@ -193,6 +209,7 @@
             document.getElementById('info-res').innerText = `${w}x${h}`;
             previewCanvas.width = w; previewCanvas.height = h;
             const ctx = previewCanvas.getContext('2d');
+            ctx.clearRect(0, 0, w, h); // Clear canvas before drawing
             ctx.drawImage(img, 0, 0);
             const imageDataObj = ctx.getImageData(0, 0, w, h);
             
@@ -201,7 +218,12 @@
                 colors.add((imageDataObj.data[i] << 16) | (imageDataObj.data[i+1] << 8) | imageDataObj.data[i+2]);
             }
             document.getElementById('info-source-colors').innerText = colors.size.toLocaleString();
-            worker.postMessage({ imgData: imageDataObj, maxColors: parseInt(palLimitInput.value), downloadName });
+            worker.postMessage({ 
+                imgData: imageDataObj, 
+                maxColors: parseInt(palLimitInput.value), 
+                downloadName,
+                rawAlphaValue: alphaInput.value 
+            });
         }
 
         function renderView() {
