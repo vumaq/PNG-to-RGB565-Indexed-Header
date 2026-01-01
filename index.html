@@ -30,7 +30,7 @@
     </div>
 
     <header class="w-full px-8 pt-4 flex flex-col gap-1 pointer-events-none z-10">
-        <h1 class="text-3xl font-black text-white tracking-tighter uppercase leading-none">8-Bit Indexed RGB565 Converter</h1>
+        <h1 class="text-3xl font-black text-white tracking-tighter uppercase leading-none">8-Bit Indexed</h1>
     </header>
 
     <main class="flex-1 w-full py-4 flex items-center justify-center relative overflow-hidden pointer-events-none">
@@ -56,7 +56,7 @@
         <div class="h-full w-full grid grid-cols-4 gap-4 items-center">
             <div class="flex flex-col justify-center bg-slate-900 px-6 h-16 rounded-xl border border-slate-700">
                 <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Max Palette Size</label>
-                <input type="number" id="pal-limit" value="256" min="2" max="256" 
+                <input type="number" id="pal-limit" value="64" min="2" max="256" 
                     class="bg-transparent text-indigo-400 font-bold text-lg focus:outline-none">
             </div>
 
@@ -83,12 +83,14 @@
         
         self.onmessage = function(e) {
             const { imgData, maxColors, downloadName, rawAlphaValue } = e.data;
+            const limit = parseInt(maxColors);
             
             const val = parseInt(rawAlphaValue, 16);
             const rK = Math.round(((val >> 11) & 0x1F) * (255 / 31));
             const gK = Math.round(((val >> 5) & 0x3F) * (255 / 63));
             const bK = Math.round((val & 0x1F) * (255 / 31));
 
+            // Determine if transparency exists
             let hasTransparency = false;
             for (let i = 3; i < imgData.data.length; i += 4) {
                 if (imgData.data[i] < 128) {
@@ -97,7 +99,8 @@
                 }
             }
 
-            const qColors = hasTransparency ? Math.max(1, maxColors - 1) : maxColors;
+            // If no transparency, use the full limit for RgbQuant
+            const qColors = hasTransparency ? Math.max(1, limit - 1) : limit;
             const q = new RgbQuant({ colors: qColors, method: 2, sample: 1 });
             q.sample(imgData);
             
@@ -108,13 +111,14 @@
             let finalIndices = new Uint8Array(rawIndices.length);
 
             if (hasTransparency) {
-                // Reserve Index 0 and fill it with the RGB of your Transparency Key for the UI preview
+                // Reserve Index 0 for your chosen key color
                 finalPalette.push(rK, gK, bK, 255); 
                 for (let i = 0; i < rawPalette.length; i++) finalPalette.push(rawPalette[i]);
                 for (let i = 0; i < rawIndices.length; i++) {
                     finalIndices[i] = (imgData.data[i * 4 + 3] < 128) ? 0 : rawIndices[i] + 1;
                 }
             } else {
+                // Normal mode: Use exactly what RgbQuant returned
                 finalPalette = rawPalette;
                 finalIndices = rawIndices;
             }
@@ -209,7 +213,7 @@
             document.getElementById('info-res').innerText = `${w}x${h}`;
             previewCanvas.width = w; previewCanvas.height = h;
             const ctx = previewCanvas.getContext('2d');
-            ctx.clearRect(0, 0, w, h); // Clear canvas before drawing
+            ctx.clearRect(0, 0, w, h);
             ctx.drawImage(img, 0, 0);
             const imageDataObj = ctx.getImageData(0, 0, w, h);
             
@@ -220,7 +224,7 @@
             document.getElementById('info-source-colors').innerText = colors.size.toLocaleString();
             worker.postMessage({ 
                 imgData: imageDataObj, 
-                maxColors: parseInt(palLimitInput.value), 
+                maxColors: palLimitInput.value, 
                 downloadName,
                 rawAlphaValue: alphaInput.value 
             });
