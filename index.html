@@ -8,7 +8,10 @@
     <script src="https://cdn.jsdelivr.net/npm/rgbquant@1.1.2/src/rgbquant.min.js"></script>
     <style>
         .checkerboard {
-            background-image: linear-gradient(45deg, #1e293b 25%, transparent 25%), linear-gradient(-45deg, #1e293b 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1e293b 75%), linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+            background-image: linear-gradient(45deg, #1e293b 25%, transparent 25%), 
+                              linear-gradient(-45deg, #1e293b 25%, transparent 25%), 
+                              linear-gradient(45deg, transparent 75%, #1e293b 75%), 
+                              linear-gradient(-45deg, transparent 75%, #1e293b 75%);
             background-size: 40px 40px;
             background-position: 0 0, 0 20px, 20px -20px, -20px 0px;
             background-color: #0f172a;
@@ -16,18 +19,9 @@
         canvas { max-width: 90vw; max-height: 100%; object-fit: contain; image-rendering: pixelated; }
         #drop-icon { transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         body.drag-active #drop-icon { transform: scale(2.5); color: #818cf8; }
-        .loading-pulse { animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
     </style>
 </head>
 <body id="global-drop" class="checkerboard h-screen w-screen flex flex-col text-slate-200 overflow-hidden m-0">
-
-    <div id="toast" class="fixed top-4 right-4 z-50 hidden">
-        <div class="bg-slate-900 border border-slate-700 px-4 py-2 rounded-xl shadow-2xl flex items-center gap-3">
-            <div id="status-dot" class="w-2 h-2 rounded-full bg-indigo-500"></div>
-            <span id="status-text" class="text-[10px] font-bold uppercase tracking-widest text-slate-300">Ready</span>
-        </div>
-    </div>
 
     <header class="w-full px-8 pt-4 flex flex-col gap-1 pointer-events-none z-10">
         <h1 class="text-3xl font-black text-white tracking-tighter uppercase leading-none">8-Bit Indexed</h1>
@@ -48,22 +42,23 @@
         <div class="h-full w-full flex items-center gap-10 text-[10px] font-bold uppercase tracking-widest">
             <div class="flex flex-col"><span class="text-slate-500 mb-0.5">File</span><span id="info-filename" class="text-slate-200">-</span></div>
             <div class="flex flex-col"><span class="text-slate-500 mb-0.5">Resolution</span><span id="info-res" class="text-slate-200">-</span></div>
-            <div class="flex flex-col"><span class="text-slate-500 mb-0.5">Colors Found</span><span id="info-source-colors" class="text-slate-200">-</span></div>
+            <div class="flex flex-col"><span class="text-slate-500 mb-0.5">Source Colors</span><span id="info-source-colors" class="text-slate-200">-</span></div>
+            <div class="flex flex-col"><span class="text-slate-500 mb-0.5">Export Colors</span><span id="info-final-colors" class="text-slate-200">-</span></div>
         </div>
     </div>
 
     <nav id="action-bar" class="hidden h-28 bg-slate-950 border-t border-slate-800 px-8 z-30">
         <div class="h-full w-full grid grid-cols-4 gap-4 items-center">
             <div class="flex flex-col justify-center bg-slate-900 px-6 h-16 rounded-xl border border-slate-700">
-                <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Max Palette Size</label>
-                <input type="number" id="pal-limit" value="64" min="2" max="256" 
+                <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Target Palette Size</label>
+                <input type="number" id="pal-limit" value="256" min="2" max="256" 
                     class="bg-transparent text-indigo-400 font-bold text-lg focus:outline-none">
             </div>
 
             <div class="flex flex-col justify-center bg-slate-900 px-6 h-16 rounded-xl border border-slate-700">
                 <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Transparency Key</label>
                 <input type="text" id="alpha-value-input" value="0xF81F" 
-                    class="bg-transparent text-pink-500 font-bold text-lg focus:outline-none uppercase" placeholder="0x0000">
+                    class="bg-transparent font-bold text-lg focus:outline-none uppercase" placeholder="0x0000">
             </div>
 
             <button id="toggle-view" class="h-16 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 flex flex-col items-center justify-center hover:bg-slate-800 transition-colors">
@@ -72,8 +67,8 @@
             </button>
 
             <button id="download-btn" class="h-16 rounded-xl bg-indigo-600 text-white font-black shadow-lg shadow-indigo-900/20 flex flex-col items-center justify-center hover:bg-indigo-500 active:scale-[0.98] transition-all">
-                <span class="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-200 mb-1">Export</span>
-                <span class="text-[10px] font-bold uppercase">Download .h</span>
+                <span id="btn-sublabel" class="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-200 mb-1">Export</span>
+                <span id="btn-label" class="text-[10px] font-bold uppercase">Download .h</span>
             </button>
         </div>
     </nav>
@@ -82,15 +77,14 @@
         importScripts('https://cdn.jsdelivr.net/npm/rgbquant@1.1.2/src/rgbquant.min.js');
         
         self.onmessage = function(e) {
-            const { imgData, maxColors, downloadName, rawAlphaValue } = e.data;
-            const limit = parseInt(maxColors);
+            const { imgData, maxLimit, sourceColorCount, downloadName, rawAlphaValue } = e.data;
+            let actualTarget = Math.min(parseInt(maxLimit), sourceColorCount);
             
             const val = parseInt(rawAlphaValue, 16);
             const rK = Math.round(((val >> 11) & 0x1F) * (255 / 31));
             const gK = Math.round(((val >> 5) & 0x3F) * (255 / 63));
             const bK = Math.round((val & 0x1F) * (255 / 31));
 
-            // Determine if transparency exists
             let hasTransparency = false;
             for (let i = 3; i < imgData.data.length; i += 4) {
                 if (imgData.data[i] < 128) {
@@ -99,8 +93,7 @@
                 }
             }
 
-            // If no transparency, use the full limit for RgbQuant
-            const qColors = hasTransparency ? Math.max(1, limit - 1) : limit;
+            const qColors = hasTransparency ? Math.max(1, actualTarget - 1) : actualTarget;
             const q = new RgbQuant({ colors: qColors, method: 2, sample: 1 });
             q.sample(imgData);
             
@@ -111,23 +104,22 @@
             let finalIndices = new Uint8Array(rawIndices.length);
 
             if (hasTransparency) {
-                // Reserve Index 0 for your chosen key color
                 finalPalette.push(rK, gK, bK, 255); 
                 for (let i = 0; i < rawPalette.length; i++) finalPalette.push(rawPalette[i]);
                 for (let i = 0; i < rawIndices.length; i++) {
                     finalIndices[i] = (imgData.data[i * 4 + 3] < 128) ? 0 : rawIndices[i] + 1;
                 }
             } else {
-                // Normal mode: Use exactly what RgbQuant returned
                 finalPalette = rawPalette;
                 finalIndices = rawIndices;
             }
 
             const count = finalPalette.length / 4;
 
-            let header = `/* Generated 8-Bit Indexed Data */\n#ifndef BITMAP_DATA_H\n#define BITMAP_DATA_H\n#include <stdint.h>\n\n`;
+            let header = `/* Generated Adaptive 8-Bit Indexed Data */\n#ifndef BITMAP_DATA_H\n#define BITMAP_DATA_H\n#include <stdint.h>\n\n`;
             header += `static constexpr uint16_t GFX_W = ${imgData.width};\n`;
-            header += `static constexpr uint16_t GFX_H = ${imgData.height};\n\n`;
+            header += `static constexpr uint16_t GFX_H = ${imgData.height};\n`;
+            header += `static constexpr uint16_t PALETTE_SIZE = ${count};\n\n`;
             
             header += `const uint8_t epd_bitmap_${downloadName}[] PROGMEM = {\n    `;
             for (let i = 0; i < finalIndices.length; i++) {
@@ -147,14 +139,13 @@
                     const rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
                     header += "0x" + rgb565.toString(16).toUpperCase().padStart(4, '0');
                 }
-                
                 if (i < count - 1) {
                     header += (i + 1) % 8 === 0 ? ",\n    " : ", ";
                 }
             }
             header += `\n};\n#endif`;
             
-            self.postMessage({ palette: finalPalette, indices: finalIndices, finalHeader: header });
+            self.postMessage({ palette: finalPalette, indices: finalIndices, finalHeader: header, colorCount: count });
         };
     </script>
 
@@ -164,22 +155,66 @@
         const palLimitInput = document.getElementById('pal-limit');
         const alphaInput = document.getElementById('alpha-value-input');
         const viewModeLabel = document.getElementById('view-mode-label');
+        const downloadBtn = document.getElementById('download-btn');
+        const btnLabel = document.getElementById('btn-label');
+        const btnSublabel = document.getElementById('btn-sublabel');
 
         let originalImg = null, processedData = null, isViewOriginal = false, finalHeader = "", downloadName = "image";
+        let stateLock = false;
+        let isInitialLoad = false; // Tracker for file drops
+
         const worker = new Worker(URL.createObjectURL(new Blob([document.getElementById('worker-script').textContent], { type: 'text/javascript' })));
 
-        function updateStatus(msg, isLoading = false) {
-            const toast = document.getElementById('toast');
-            toast.classList.remove('hidden');
-            document.getElementById('status-text').innerText = msg;
-            document.getElementById('status-dot').className = isLoading ? "w-2 h-2 rounded-full bg-indigo-500 loading-pulse" : "w-2 h-2 rounded-full bg-green-500";
-            if (!isLoading) setTimeout(() => toast.classList.add('hidden'), 2000);
+        function setBtnState(state) {
+            switch(state) {
+                case 'processing':
+                    stateLock = true;
+                    downloadBtn.classList.add('opacity-50', 'pointer-events-none');
+                    btnSublabel.innerText = "System";
+                    btnLabel.innerText = "Processing...";
+                    break;
+                case 'ready':
+                    setTimeout(() => {
+                        stateLock = false;
+                        downloadBtn.classList.remove('opacity-50', 'pointer-events-none');
+                        btnSublabel.innerText = "Export";
+                        btnLabel.innerText = "Download .h";
+                    }, 500); 
+                    break;
+                case 'success':
+                    btnSublabel.innerText = "Saved";
+                    btnLabel.innerText = "File Exported!";
+                    setTimeout(() => setBtnState('ready'), 2000);
+                    break;
+            }
+        }
+
+        function updateAlphaInputStyle() {
+            const val = alphaInput.value;
+            const numeric = parseInt(val, 16);
+            if (!isNaN(numeric)) {
+                const r = Math.round(((numeric >> 11) & 0x1F) * (255 / 31));
+                const g = Math.round(((numeric >> 5) & 0x3F) * (255 / 63));
+                const b = Math.round((numeric & 0x1F) * (255 / 31));
+                alphaInput.style.color = `rgb(${r}, ${g}, ${b})`;
+            }
         }
 
         worker.onmessage = (e) => {
             processedData = e.data;
             finalHeader = e.data.finalHeader;
-            updateStatus("Ready");
+            
+            document.getElementById('info-final-colors').innerText = e.data.colorCount;
+            
+            // If we just dropped a file OR if the user hasn't manually focused the input,
+            // update the input value to show actual export colors.
+            if (isInitialLoad || document.activeElement !== palLimitInput) {
+                palLimitInput.value = e.data.colorCount;
+                palLimitInput.max = Math.min(256, e.data.colorCount);
+                isInitialLoad = false; // Reset flag
+            }
+            
+            setBtnState('ready');
             ['summary-bar', 'action-bar', 'preview-canvas'].forEach(id => document.getElementById(id).classList.remove('hidden'));
             document.getElementById('drop-content').classList.add('hidden');
             renderView();
@@ -196,6 +231,7 @@
         window.addEventListener('drop', (e) => { e.preventDefault(); document.body.classList.remove('drag-active'); handleFile(e.dataTransfer.files[0]); });
 
         palLimitInput.onchange = () => { if(originalImg) processImage(originalImg); };
+        alphaInput.oninput = updateAlphaInputStyle;
         alphaInput.onchange = () => { if(originalImg) processImage(originalImg); };
 
         function handleFile(file) {
@@ -203,12 +239,19 @@
             downloadName = file.name.split('.')[0].replace(/[^a-z0-9]/gi, '_');
             document.getElementById('info-filename').innerText = file.name;
             const img = new Image();
-            img.onload = () => { originalImg = img; processImage(img); };
+            img.onload = () => { 
+                originalImg = img; 
+                isInitialLoad = true; // Flag that this is a fresh file
+                palLimitInput.value = 256; // Reset to max before processing fresh file
+                processImage(img); 
+            };
             img.src = URL.createObjectURL(file);
         }
 
         function processImage(img) {
-            updateStatus("Processing...", true);
+            setBtnState('processing');
+            updateAlphaInputStyle();
+
             const w = img.width, h = img.height;
             document.getElementById('info-res').innerText = `${w}x${h}`;
             previewCanvas.width = w; previewCanvas.height = h;
@@ -221,10 +264,13 @@
             for (let i = 0; i < imageDataObj.data.length; i += 4) {
                 colors.add((imageDataObj.data[i] << 16) | (imageDataObj.data[i+1] << 8) | imageDataObj.data[i+2]);
             }
-            document.getElementById('info-source-colors').innerText = colors.size.toLocaleString();
+            const sourceColorCount = colors.size;
+            document.getElementById('info-source-colors').innerText = sourceColorCount.toLocaleString();
+            
             worker.postMessage({ 
                 imgData: imageDataObj, 
-                maxColors: palLimitInput.value, 
+                maxLimit: palLimitInput.value, 
+                sourceColorCount: sourceColorCount,
                 downloadName,
                 rawAlphaValue: alphaInput.value 
             });
@@ -256,13 +302,16 @@
             renderView(); 
         };
 
-        document.getElementById('download-btn').onclick = () => {
+        downloadBtn.onclick = () => {
+            if(stateLock) return;
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([finalHeader], { type: 'text/plain' }));
             a.download = `${downloadName}.h`;
             a.click();
-            updateStatus("Exported .h");
+            setBtnState('success');
         };
+
+        updateAlphaInputStyle();
     </script>
 </body>
 </html>
